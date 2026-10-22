@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
-  role TEXT NOT NULL CHECK(role IN ('candidate','lawyer','admin')),
+  role TEXT NOT NULL CHECK(role IN ('candidate','lawyer','company','admin')),
   password_hash TEXT NOT NULL,
   force_password_change INTEGER NOT NULL DEFAULT 0,
   access_until TEXT,
@@ -20,7 +20,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
-  plan TEXT NOT NULL CHECK(plan IN ('candidate','lawyer')),
+  plan TEXT NOT NULL CHECK(plan IN ('candidate','lawyer','company')),
   expected_amount INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   checkout_url TEXT,

@@ -2,7 +2,7 @@ import {runJobBot} from './jobbot.js';
 
 const encoder = new TextEncoder();
 const cookieName = 'bern_session';
-const prices = {candidate:990,lawyer:2990};
+const prices = {candidate:990,lawyer:2990,company:12990};
 const legalInfo = {
   PT: {country:'Portugal',note:'Documentos e visto dependem do contrato, modalidade e consulado; confira sempre o procedimento atualizado.', links:[{label:'IEFP — vagas para cidadãos de países terceiros',url:'https://iefponline.iefp.pt/IEFP/ofertas/emprego/recrutamento-internacional/estados-terceiros.jsp'},{label:'AIMA — imigração e residência',url:'https://aima.gov.pt/'}]},
   DE: {country:'Alemanha',note:'Para determinadas profissões há exigências de qualificação e reconhecimento; oferta de emprego não significa aprovação migratória.',links:[{label:'Make it in Germany — portal oficial',url:'https://www.make-it-in-germany.com/en/'},{label:'Anabin — reconhecimento de diplomas',url:'https://anabin.kmk.org/anabin.html'}]},
@@ -50,6 +50,15 @@ async function currentUser(req,db) {
 }
 function active(u) {return !!(u && (u.role==='admin'||(u.access_until && Date.parse(u.access_until.replace(' ','T')+'Z')>Date.now())));}
 function userResponse(u) {return {id:u.id,name:u.name,email:u.email,role:u.role,access_until:u.access_until,active:active(u),must_change_password:!!u.force_password_change};}
+function safeHttps(value) {
+  if(!value) return null;
+  try {const u=new URL(String(value));if(u.protocol!=='https:'||u.username||u.password||u.href.length>700)return null;return u.href;}catch{return null;}
+}
+async function allowedApplication(db,me,id) {
+  if(me.role==='candidate') return db.prepare('SELECT id FROM company_applications WHERE id=? AND candidate_id=?').bind(id,me.id).first();
+  if(me.role==='company') return db.prepare('SELECT a.id FROM company_applications a JOIN company_jobs j ON j.id=a.job_id WHERE a.id=? AND j.company_id=?').bind(id,me.id).first();
+  return null;
+}
 async function body(req) {try{return await req.json();}catch{throw new Error('JSON inválido');}}
 function safeString(value,max=200) {return String(value??'').trim().slice(0,max);}
 async function requireAdminKey(req,env) {
@@ -60,7 +69,7 @@ async function requireAdminKey(req,env) {
 async function checkoutLink(env,order,user,origin) {
   if (!env.INFINITEPAY_API_KEY) throw new Error('Configure INFINITEPAY_API_KEY como segredo no Worker');
   const payload={order_nsu:order.id,redirect_url:`${origin}/?payment_return=1&order_nsu=${encodeURIComponent(order.id)}`,
-    items:[{quantity:1,price:order.expected_amount,description:order.plan==='candidate'?'Bern Global — candidato 30 dias':'Bern Global — advogado 30 dias'}],
+    items:[{quantity:1,price:order.expected_amount,description:order.plan==='candidate'?'Bern Global — candidato 30 dias':order.plan==='lawyer'?'Bern Global — profissional jurídico 30 dias':'Bern Global — empresa 30 dias'}],
     customer:{name:user.name,email:user.email},options:{single_payment:true}};
   if (env.INFINITEPAY_HANDLE) payload.handle=env.INFINITEPAY_HANDLE;
   const r=await fetch('https://api.checkout.infinitepay.io/links',{method:'POST',headers:{'Content-Type':'application/json','X-Api-Key':env.INFINITEPAY_API_KEY},body:JSON.stringify(payload),signal:AbortSignal.timeout(12000)});
@@ -99,15 +108,17 @@ async function handleApi(req,env,url) {
   if (method!=='GET' && method!=='HEAD') {
     const origin=req.headers.get('Origin');
     if (origin && origin!==url.origin) return fail('Origem não permitida',403);
+    if (!origin && !path.startsWith('/api/admin/')) return fail('Origem obrigatória em requisições de escrita',403);
   }
-  if(path==='/api/health'&&method==='GET') return json({ok:true,service:'bern-global',version:'0.1.0'});
+  if(path==='/api/health'&&method==='GET') return json({ok:true,service:'bern-global',version:'0.2.0'});
   if(path==='/api/legal'&&method==='GET') return json(legalInfo);
   if(path==='/api/signup'&&method==='POST') {
     const p=await body(req),email=safeString(p.email,240).toLowerCase(),role=p.role;
-    if(!/^\S+@\S+\.\S+$/.test(email)||!['candidate','lawyer'].includes(role)||!validPassword(p.password)||!safeString(p.name,100)) return fail('Confira nome, e-mail, perfil e senha (mínimo 12 caracteres)');
+    if(!/^\S+@\S+\.\S+$/.test(email)||!['candidate','lawyer','company'].includes(role)||!validPassword(p.password)||!safeString(p.name,100)) return fail('Confira nome, e-mail, perfil e senha (mínimo 12 caracteres)');
     const id=uid();
     await db.prepare('INSERT INTO users(id,name,email,role,password_hash) VALUES(?,?,?,?,?)').bind(id,safeString(p.name,100),email,role,await passwordHash(p.password)).run();
     if(role==='lawyer') await db.prepare('INSERT INTO lawyer_profiles(user_id) VALUES(?)').bind(id).run();
+    if(role==='company') await db.prepare('INSERT INTO company_profiles(user_id) VALUES(?)').bind(id).run();
     return json({ok:true,message:'Conta criada; contrate o plano para ativar o acesso'},201,{'Set-Cookie':await createSession(db,id,req)});
   }
   if(path==='/api/login'&&method==='POST') {
@@ -133,14 +144,38 @@ async function handleApi(req,env,url) {
     if(!await requireAdminKey(req,env)) return fail('Chave administrativa inválida',403);
     if(path==='/api/admin/provision'&&method==='POST') {
       const p=await body(req),role=p.role,email=safeString(p.email,240).toLowerCase();
-      if(!['candidate','lawyer','admin'].includes(role)||!/^\S+@\S+\.\S+$/.test(email)||!validPassword(p.password)) return fail('Dados inválidos (senha com no mínimo 12 caracteres)');
+      if(!['candidate','lawyer','company','admin'].includes(role)||!/^\S+@\S+\.\S+$/.test(email)||!validPassword(p.password)) return fail('Dados inválidos (senha com no mínimo 12 caracteres)');
       const existing=await db.prepare('SELECT id FROM users WHERE email=?').bind(email).first();
       if(existing) return fail('E-mail já cadastrado',409);
       const id=uid();
       await db.prepare('INSERT INTO users(id,name,email,role,password_hash,force_password_change) VALUES(?,?,?,?,?,1)')
         .bind(id,safeString(p.name,100)||email,email,role,await passwordHash(p.password)).run();
       if(role==='lawyer') await db.prepare('INSERT INTO lawyer_profiles(user_id) VALUES(?)').bind(id).run();
+    if(role==='company') await db.prepare('INSERT INTO company_profiles(user_id) VALUES(?)').bind(id).run();
       return json({id,email,role,must_change_password:true},201);
+    }
+    if(path==='/api/admin/reset-password'&&method==='POST') {
+      const p=await body(req),email=safeString(p.email,240).toLowerCase();
+      if(!/^\S+@\S+\.\S+$/.test(email)||!validPassword(p.password)) return fail('E-mail ou senha inválidos');
+      const user=await db.prepare('SELECT id FROM users WHERE email=?').bind(email).first();
+      if(!user) return fail('Usuário não localizado',404);
+      await db.batch([
+        db.prepare('UPDATE users SET password_hash=?,force_password_change=1 WHERE id=?').bind(await passwordHash(p.password),user.id),
+        db.prepare('DELETE FROM sessions WHERE user_id=?').bind(user.id)
+      ]);
+      return json({ok:true,must_change_password:true});
+    }
+    if(path==='/api/admin/company/verify'&&method==='POST') {
+      const p=await body(req);
+      const r=await db.prepare('UPDATE company_profiles SET verified=? WHERE user_id=?').bind(p.verified===true?1:0,safeString(p.user_id,70)).run();
+      return json({ok:r.meta.changes>0});
+    }
+    if(path==='/api/admin/company/jobs/moderate'&&method==='POST') {
+      const p=await body(req);if(!['published','rejected','closed'].includes(p.status))return fail('Status inválido');
+      const r=await db.prepare(`UPDATE company_jobs SET status=?,updated_at=datetime('now') WHERE id=? AND (
+        ?!='published' OR EXISTS(SELECT 1 FROM company_profiles cp JOIN users u ON u.id=cp.user_id WHERE cp.user_id=company_jobs.company_id AND cp.verified=1 AND u.access_until>datetime('now'))
+      )`).bind(p.status,safeString(p.job_id,70),p.status).run();
+      return json({ok:r.meta.changes>0});
     }
     if(path==='/api/admin/add-source'&&method==='POST') {
       const p=await body(req);const slug=safeString(p.board_slug,70),provider=p.provider;
@@ -186,6 +221,14 @@ async function handleApi(req,env,url) {
     const country=url.searchParams.get('country');const where="p.is_verified=1 AND u.access_until>datetime('now')";
     const sql=`SELECT u.id,u.name,p.country,p.bar_name,p.registration,p.languages,p.description FROM lawyer_profiles p JOIN users u ON u.id=p.user_id WHERE ${where}${['PT','DE','IE'].includes(country)?' AND p.country=?':''} ORDER BY u.name LIMIT 100`;
     return json({lawyers:(await db.prepare(sql).bind(...(['PT','DE','IE'].includes(country)?[country]:[])).all()).results});
+  }
+  if(path==='/api/company/jobs/public'&&method==='GET') {
+    const country=url.searchParams.get('country'),where=["j.status='published'","u.access_until>datetime('now')","p.verified=1"];
+    const args=[];if(['PT','DE','IE'].includes(country)){where.push('j.country=?');args.push(country);}
+    const rows=await db.prepare(`SELECT j.id,j.title,j.country,j.city,j.description,j.requirements,j.salary,j.image_url,j.document_support,j.created_at,p.legal_name AS employer
+      FROM company_jobs j JOIN company_profiles p ON p.user_id=j.company_id JOIN users u ON u.id=j.company_id
+      WHERE ${where.join(' AND ')} ORDER BY j.created_at DESC LIMIT 50`).bind(...args).all();
+    return json({jobs:rows.results});
   }
   const me=await currentUser(req,db);
   if(!me) return fail('Entre com sua conta',401);
@@ -253,16 +296,90 @@ async function handleApi(req,env,url) {
     const r=await db.prepare('UPDATE contact_requests SET status=? WHERE id=? AND lawyer_id=?').bind(p.status,safeString(p.request_id,70),me.id).run();
     return json({ok:r.meta.changes>0});
   }
+  if(path==='/api/company/profile'&&method==='GET') {
+    if(me.role!=='company') return fail('Acesso exclusivo de empresas',403);
+    return json({profile:await db.prepare('SELECT legal_name,website,description,verified,logo_url FROM company_profiles WHERE user_id=?').bind(me.id).first()});
+  }
+  if(path==='/api/company/profile'&&method==='POST') {
+    if(me.role!=='company'||!active(me)) return fail('Plano empresa ativo necessário',403);
+    const p=await body(req);
+    if(safeString(p.legal_name,150).length<3) return fail('Informe razão social ou nome empresarial');
+    const website=safeHttps(p.website),logo=safeHttps(p.logo_url);
+    if(p.website && !website) return fail('Site institucional deve usar HTTPS');
+    if(p.logo_url && !logo) return fail('Logo deve usar HTTPS');
+    await db.prepare("UPDATE company_profiles SET legal_name=?,website=?,description=?,logo_url=?,verified=0,updated_at=datetime('now') WHERE user_id=?")
+      .bind(safeString(p.legal_name,150),website,safeString(p.description,700),logo,me.id).run();
+    return json({ok:true,notice:'Cadastro enviado para verificação. O perfil não aparece publicamente até aprovação.'});
+  }
+  if(path==='/api/company/jobs'&&method==='GET') {
+    if(me.role!=='company') return fail('Acesso exclusivo de empresas',403);
+    const rows=await db.prepare('SELECT id,title,country,city,status,created_at,updated_at FROM company_jobs WHERE company_id=? ORDER BY created_at DESC LIMIT 100').bind(me.id).all();
+    return json({jobs:rows.results});
+  }
+  if(path==='/api/company/jobs'&&method==='POST') {
+    if(me.role!=='company'||!active(me)) return fail('Assinatura da empresa não está ativa',403);
+    const p=await body(req),title=safeString(p.title,180),description=safeString(p.description,4000),requirements=safeString(p.requirements,4000),country=p.country;
+    if(title.length<6||description.length<35||requirements.length<15||!['PT','DE','IE'].includes(country)) return fail('Informe título, país, descrição e requisitos completos');
+    const img=safeHttps(p.image_url);if(p.image_url&&!img)return fail('Imagem precisa ser um link HTTPS válido');
+    const lastHour=await db.prepare("SELECT COUNT(*) as count FROM company_jobs WHERE company_id=? AND created_at>datetime('now','-1 hour')").bind(me.id).first();
+    if(lastHour.count>=10) return fail('Limite antiabuso temporário. Tente mais tarde',429);
+    const id=uid();await db.prepare(`INSERT INTO company_jobs(id,company_id,title,country,city,description,requirements,salary,image_url,document_support)
+      VALUES(?,?,?,?,?,?,?,?,?,?)`).bind(id,me.id,title,country,safeString(p.city,150),description,requirements,safeString(p.salary,130),img,safeString(p.document_support,900)).run();
+    return json({ok:true,id,status:'pending',notice:'Vaga enviada à revisão. Não ficará pública até aprovação.'},201);
+  }
+  if(path==='/api/company/apply'&&method==='POST') {
+    if(me.role!=='candidate') return fail('Cadastro de candidato necessário',403);
+    const p=await body(req),message=safeString(p.message,1000);
+    if(p.consent!==true||message.length<15)return fail('Preencha a mensagem e autorize o envio ao empregador');
+    const job=await db.prepare(`SELECT j.id FROM company_jobs j JOIN company_profiles cp ON cp.user_id=j.company_id JOIN users u ON u.id=j.company_id
+      WHERE j.id=? AND j.status='published' AND cp.verified=1 AND u.access_until>datetime('now')`).bind(safeString(p.job_id,70)).first();
+    if(!job)return fail('Vaga não disponível',404);
+    const id=uid();await db.prepare('INSERT INTO company_applications(id,job_id,candidate_id,contact_name,contact_email,message) VALUES(?,?,?,?,?,?)').bind(id,job.id,me.id,me.name,me.email,message).run();
+    return json({ok:true,application_id:id},201);
+  }
+  if(path==='/api/company/my-applications'&&method==='GET') {
+    if(me.role!=='candidate') return fail('Acesso exclusivo de candidatos',403);
+    const rows=await db.prepare(`SELECT a.id,a.status,a.created_at,j.title,cp.legal_name AS employer FROM company_applications a JOIN company_jobs j ON j.id=a.job_id JOIN company_profiles cp ON cp.user_id=j.company_id WHERE a.candidate_id=? ORDER BY a.created_at DESC LIMIT 100`).bind(me.id).all();
+    return json({applications:rows.results});
+  }
+  if(path==='/api/company/applications'&&method==='GET') {
+    if(me.role!=='company'||!active(me)) return fail('Acesso exclusivo de empresas com plano ativo',403);
+    const rows=await db.prepare(`SELECT a.id,a.contact_name,a.contact_email,a.message,a.status,a.created_at,j.title AS job_title FROM company_applications a JOIN company_jobs j ON j.id=a.job_id WHERE j.company_id=? ORDER BY a.created_at DESC LIMIT 100`).bind(me.id).all();
+    return json({applications:rows.results});
+  }
+  if(path==='/api/company/messages'&&method==='GET') {
+    if(!['candidate','company'].includes(me.role) || (me.role==='company'&&!active(me)))return fail('Acesso não permitido',403);
+    const app=await allowedApplication(db,me,safeString(url.searchParams.get('application_id'),70));
+    if(!app)return fail('Candidatura não encontrada',404);
+    const rows=await db.prepare('SELECT sender_id,content,created_at FROM company_messages WHERE application_id=? ORDER BY created_at LIMIT 100').bind(app.id).all();
+    return json({messages:rows.results,application_id:app.id});
+  }
+  if(path==='/api/company/messages'&&method==='POST') {
+    if(!['candidate','company'].includes(me.role) || (me.role==='company'&&!active(me)))return fail('Acesso não permitido',403);
+    const p=await body(req),app=await allowedApplication(db,me,safeString(p.application_id,70)),content=safeString(p.content,1500);
+    if(!app)return fail('Candidatura não encontrada',404);
+    if(content.length<2)return fail('Mensagem não pode estar vazia');
+    const count=await db.prepare("SELECT COUNT(*) as total FROM company_messages WHERE application_id=? AND sender_id=? AND created_at>datetime('now','-1 hour')").bind(app.id,me.id).first();
+    if(count.total>=30)return fail('Limite temporário de mensagens atingido',429);
+    await db.prepare('INSERT INTO company_messages(id,application_id,sender_id,content) VALUES(?,?,?,?)').bind(uid(),app.id,me.id,content).run();
+    return json({ok:true},201);
+  }
   return fail('Endpoint não encontrado',404);
 }
 export default {
   async fetch(req,env) {
     const url=new URL(req.url);
+    let response;
     if(url.pathname.startsWith('/api/')) {
-      try{return await handleApi(req,env,url);}
-      catch(err){console.error('API failure',url.pathname,err.message);if(/UNIQUE constraint/.test(err.message))return fail('E-mail ou registro já cadastrado',409);return fail('Falha interna no processamento. Verifique a configuração ou contate o suporte.',500);}
-    }
-    return env.ASSETS.fetch(req);
+      try{response=await handleApi(req,env,url);}
+      catch(err){console.error('API failure',url.pathname,err.message);response=/UNIQUE constraint/.test(err.message)?fail('Já existe um registro com esses dados',409):fail('Falha interna no processamento. Verifique a configuração ou contate o suporte.',500);}
+    } else response=await env.ASSETS.fetch(req);
+    const headers=new Headers(response.headers);
+    headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','strict-origin-when-cross-origin');
+    headers.set('X-Frame-Options','DENY');headers.set('Permissions-Policy','camera=(), microphone=(), geolocation=(), payment=()');
+    headers.set('Content-Security-Policy',"default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self'; upgrade-insecure-requests");
+    if(url.protocol==='https:') headers.set('Strict-Transport-Security','max-age=31536000; includeSubDomains');
+    return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
   },
   async scheduled(controller,env,ctx) {ctx.waitUntil((async()=>{
     await env.DB.batch([

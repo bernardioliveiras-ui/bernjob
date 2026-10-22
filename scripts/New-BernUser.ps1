@@ -3,7 +3,7 @@ param(
   [Parameter(Mandatory=$true)][string]$BaseUrl,
   [Parameter(Mandatory=$true)][string]$Name,
   [Parameter(Mandatory=$true)][string]$Email,
-  [ValidateSet('candidate','lawyer','admin')][string]$Role='candidate'
+  [ValidateSet('candidate','lawyer','company','admin')][string]$Role='candidate'
 )
 $ErrorActionPreference='Stop'
 if (-not $env:BERN_ADMIN_KEY) { throw 'Defina a variável de ambiente BERN_ADMIN_KEY no PowerShell (mesmo valor do segredo ADMIN_KEY do Worker).' }

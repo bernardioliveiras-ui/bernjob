@@ -1,3 +1,33 @@
+
+## Atualização v0.2 — empresa, visual e proteção de dados
+
+Este pacote estende a base v0.1. Inclui um terceiro plano para empresa (R$129,90 por 30 dias), tela de publicação de vaga sujeita a moderação, acesso apenas às próprias candidaturas voluntárias, mensagens por candidatura, identidade visual do leão preto/vermelho/cinza e minutas de Política de Privacidade e Termos de Uso.
+
+**Slogan proposto:** “Sua formação abre fronteiras. Encontre oportunidades reais na Europa.” O foco é em profissionais qualificados, sem presumir que diploma superior, sozinho, concede visto.
+
+**Atenção:** a publicação de vaga exige aprovação administrativa do empregador E da vaga. O JobBot continua como na v0.1; não foram importadas empresas reais nem comprovadas contratações. Candidatos cadastrados podem se inscrever nas vagas próprias das empresas sem pagar pelo direito de se candidatar. O plano candidato paga por ferramentas adicionais.
+
+**Leia:** `docs/POLITICA_PRIVACIDADE_MINUTA.md`, `docs/TERMOS_USO_MINUTA.md` e `docs/SEGURANCA_LGPD.md`. Minutas exigem identificação da empresa, canais de privacidade e revisão jurídica. Recursos obrigatórios de segurança, webhook, recuperação de senha por e-mail, verificação de e-mail, Turnstile e procedimento de exclusão de dados ainda precisam ser implementados e testados antes de produção.
+
+**Instalação:** crie **banco D1 novo** nesta versão. A migration original foi alterada para o papel empresa. Para migrar um banco v0.1 já existente, faça antes um plano de migração com preservação de dados, não apenas execute os comandos da instalação nova.
+
+### Moderação de empresas e vagas (PowerShell)
+
+Crie conta de empresa pelo site ou `New-BernUser.ps1 -Role company`. Após ativar o plano e salvar perfil, verifique o CNPJ/registro comercial e a titularidade do representante; então execute, com `BERN_ADMIN_KEY` configurada:
+
+```powershell
+$headers = @{ 'X-Admin-Key' = $env:BERN_ADMIN_KEY }
+Invoke-RestMethod -Method POST -Uri "$BaseUrl/api/admin/company/verify" -Headers $headers -ContentType 'application/json' -Body (@{user_id='ID_REAL_DA_EMPRESA';verified=$true}|ConvertTo-Json)
+Invoke-RestMethod -Method POST -Uri "$BaseUrl/api/admin/company/jobs/moderate" -Headers $headers -ContentType 'application/json' -Body (@{job_id='ID_REAL_DA_VAGA';status='published'}|ConvertTo-Json)
+```
+
+Não publique as vagas sem revisão de autenticidade. Estas rotas não substituem um painel completo de moderação/auditoria; um módulo administrativo visual ainda está pendente.
+
+### Reset administrativo de senha
+
+Use `scripts/Reset-BernPassword.ps1`. Entregue a senha provisória ao usuário via canal seguro. Ela é mostrada apenas no terminal e obriga alteração no próximo acesso.
+
+---
 # Bern Global MVP 0.1 — Cloudflare Workers + D1
 
 Base executável de um marketplace de informações profissionais na Europa. Inclui páginas públicas e painel de candidatos, painel jurídico e coleta agendada de vagas de páginas públicas de carreira via APIs de Greenhouse, Lever e Ashby.
