@@ -13,7 +13,7 @@ class FakeD1Statement {
  run(){const r=this.db.db.prepare(this.sql).run(...this.args);return {meta:{last_row_id:Number(r.lastInsertRowid),changes:Number(r.changes)},success:true}}
 }
 class FakeD1{
- constructor(){this.db=new DatabaseSync(':memory:');this.db.exec(readFileSync(new URL('../migrations/0001_initial.sql',import.meta.url),'utf8'))}
+ constructor(migrate=true){this.db=new DatabaseSync(':memory:');if(migrate)this.db.exec(readFileSync(new URL('../migrations/0001_initial.sql',import.meta.url),'utf8'))}
  prepare(sql){return new FakeD1Statement(this,sql)}
  batch(stmts){this.db.exec('BEGIN');try{const out=stmts.map(x=>x.run());this.db.exec('COMMIT');return out}catch(e){this.db.exec('ROLLBACK');throw e}}
 }
@@ -57,4 +57,20 @@ test('D1 schema, auth, role-based jobs, chatbot and privacy gate',async()=>{
  r=await invoke('/api/me',{cookie:adminCookie});assert.equal((await r.json()).user.role,'admin');
  r=await invoke('/api/logout',{method:'POST',cookie:adminCookie,body:{}});assert.equal(r.status,200);
  r=await invoke('/api/me',{cookie:adminCookie});assert.equal(r.status,401);
+});
+
+test('diagnostico detecta D1 sem migracoes e explica falha de API',async()=>{
+ const emptyDb=new FakeD1(false);
+ const brokenEnv={...env,DB:emptyDb};
+ const call=(path,method='GET',body)=>worker.fetch(new Request(root+path,{method,headers:body?{'Content-Type':'application/json','X-Ramon-Client':'1'}:{},...(body?{body:JSON.stringify(body)}:{})}),brokenEnv);
+ let r=await call('/api/health');assert.equal(r.status,503);
+ assert.equal((await r.json()).database,'migration_pending');
+ r=await call('/api/public/jobs');assert.equal(r.status,503);
+ assert.match((await r.json()).error,/Banco nao inicializado/);
+ r=await call('/api/login','POST',{email:'ramon@example.com',password:'invalid'});assert.equal(r.status,503);
+});
+
+test('health confirma tabelas quando D1 ja foi migrado',async()=>{
+ const r=await invoke('/api/health');assert.equal(r.status,200);
+ assert.equal((await r.json()).database,'ready');
 });

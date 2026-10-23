@@ -143,7 +143,16 @@ async function chatbot(req,env,db,u,b,p,url){
 async function route(req,env){
  const db=env.DB, url=new URL(req.url),p=url.pathname,m=req.method;
  if(!db)return error(503,'D1 não vinculado. Configure o binding DB.');
- if(m==='GET'&&p==='/api/health')return reply(200,{ok:true,service:'Ramon Recruit Cloudflare',version:'0.4.0',environment:env.APP_ENV||'staging',applications_enabled:enabled(env)});
+ if(m==='GET'&&p==='/api/health'){
+  // A static home page works even when D1 has not been migrated. Check the actual schema.
+  if(!db?.prepare)return reply(503,{ok:false,service:'Ramon Recruit Cloudflare',database:'binding_missing',message:'Banco de dados nao vinculado'});
+  const required=['users','sessions','jobs','candidates','request_limits'];
+  try{
+   const present=new Set((await rows(db,`SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','sessions','jobs','candidates','request_limits')`)).map(r=>r.name));
+   if(required.some(t=>!present.has(t)))return reply(503,{ok:false,service:'Ramon Recruit Cloudflare',database:'migration_pending',message:'Tabelas do banco ainda nao foram inicializadas'});
+   return reply(200,{ok:true,service:'Ramon Recruit Cloudflare',version:'0.4.3',database:'ready',environment:env.APP_ENV||'staging',applications_enabled:enabled(env)});
+  }catch(e){console.error('D1 healthcheck failed',e?.name||'Error');return reply(503,{ok:false,service:'Ramon Recruit Cloudflare',database:'unavailable',message:'Banco de dados indisponivel'});}
+ }
  if(!['GET','POST','PATCH'].includes(m))return error(405,'Método não permitido');
  let b={};
  if(['POST','PATCH'].includes(m)){
@@ -254,6 +263,11 @@ export default {
    const path=new URL(req.url).pathname;
    if(!path.startsWith('/api/'))return env.ASSETS.fetch(req);
    return await route(req,env);
-  }catch(e){console.error('Ramon Worker error',e?.name||'Error');return error(500,'Erro interno');}
+  }catch(e){
+   // A missing migration is a setup issue, not a bad password; report this safely.
+   console.error('Ramon Worker error',e?.name||'Error');
+   if(/no such table|SQLITE_ERROR.*table/i.test(String(e?.message||'')))return error(503,'Banco nao inicializado. Administrador: aplique as migracoes D1 remotas.');
+   return error(500,'Erro interno');
+  }
  }
 };
