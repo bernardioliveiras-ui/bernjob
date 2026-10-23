@@ -1,40 +1,43 @@
-# HOTFIX v0.4.3 — Login, D1 e primeiro acesso
+# Ramon Recruit v0.4.4 - correcao do D1 remoto (sem importacao)
 
-**IMPORTANTE**: este ZIP e apenas um PATCH. NAO contem wrangler.jsonc nem cria D1 novo. Preserve o UUID real que ja esta no GitHub.
+## Diagnostico
 
-## Se o painel abriu e retorna Erro interno
+A consulta `d1 execute --command` funcionou e mostrou apenas `_cf_KV`: o esquema do aplicativo nao foi criado.
+A tentativa anterior de criar conta usava `d1 execute --file`, o qual chama a API `/import` e retornou erro de autenticacao `[code: 10000]` apesar de o token anunciar escopo `d1(write)`. A causa precisa do erro de `/import` nao esta confirmada.
 
-1. No repositorio existente e autenticado, confira qual banco esta em `wrangler.jsonc`: deve ser EXCLUSIVO do Ramon. Nao use banco de outros projetos.
-2. Use PowerShell dentro da raiz do projeto, apos instalar dependencias:
+## O que copiar para seu repositorio
+
+Copie **apenas a pasta `scripts/` deste patch** sobre `scripts/` no repositorio ja configurado. Nao substitua seu `wrangler.jsonc` e NAO coloque o patch como uma pasta extra na raiz.
+
+Conteudo: `Inicializar-D1-Sem-Importacao.ps1`, `ler-migracao-para-comandos.mjs`, `Criar-Acesso-Cloudflare.ps1` atualizado e `gerar-sql-acesso.mjs` auxiliar ja usado no projeto.
+
+A migracao SQL original `migrations/0001_initial.sql` precisa existir no projeto. O novo script so aceita o esquema da familia v0.4, usando `CREATE TABLE IF NOT EXISTS` e `CREATE INDEX IF NOT EXISTS`, sem DROP/DELETE.
+
+## Comandos no Windows PowerShell, na raiz do repositorio
 
 ```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 npm install
-npx wrangler login
-npx wrangler d1 migrations apply DB --remote
+npx wrangler whoami
+.\scripts\Inicializar-D1-Sem-Importacao.ps1
 npx wrangler d1 execute DB --remote --command "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
+.\scripts\Criar-Acesso-Cloudflare.ps1 -Email "SEU_EMAIL" -Nome "Administrador Principal" -Perfil admin
 ```
 
-3. Crie o admin com script original:
+Os scripts imprimem o destino D1 e exigem confirmacao `RAMON`. Se o Worker/repo `bernjob` estiver apontando para um banco de outro projeto, nao confirme. O script de criacao exige uma nova senha forte e atualiza a conta se ja existir.
 
-```powershell
-.\scripts\Criar-Acesso-Cloudflare.ps1 -Email "SEU_EMAIL_REAL" -Nome "Administrador Principal" -Perfil admin
-```
+Se `--command` tambem falhar ao criar tabelas, interrompa e use o Cloudflare D1 Studio (console SQL) para executar a migracao original manualmente; nao saia repetindo comandos nem apague o banco. O problema de permissao pode ser no endpoint de gravacao.
 
-Ou use o script novo, que valida o banco e exige confirmacao antes de executar as duas etapas:
+### Seguranca
 
-```powershell
-.\scripts\Preparar-Primeiro-Admin.ps1 -Email "SEU_EMAIL_REAL" -Nome "Administrador Principal"
-```
+- A senha nunca vai para o SQL do D1; so PBKDF2-SHA256 com salt aleatorio.
+- A chamada `--command` passa o **hash** pela linha de comando do processo local; execute numa maquina confiavel, sem gravacao de terminal ou sistema de telemetria de processos que capture argumentos. O hash nao e senha em texto puro, mas tambem deve ser protegido.
+- Nao copie o hash, a senha ou o token para GitHub, screenshots ou chats.
+- O script original usa `--file`, que falhou no endpoint `/import`; este patch nao usa `--file`.
+- Este patch nao publica o Worker nem ativa candidaturas publicas.
 
-**Escolha apenas uma forma de aplicar as migrations e cadastrar o admin**; nao precisa executar ambas.
+### Observacao sobre migracoes posteriores
 
-## O que mudou
+Essa inicializacao emergencial cria o esquema diretamente sem registrar uma migracao no historico de `d1_migrations`. Assim, nao use `d1 migrations apply --remote` novamente sem verificar o estado; caso o endpoint de importacao seja corrigido, a migracao original e idempotente, mas sera aplicada como pendente e atualizara o historico. Antes de futuras alteracoes no esquema, organize as migracoes corretamente.
 
-- `src/index.mjs`: `/api/health` agora testa se existem as tabelas principais no D1; um banco sem migracoes retorna 503 e o codigo `migration_pending`.
-- Resposta mais clara `Banco nao inicializado...` para endpoints que consultam uma tabela ausente, em vez de `Erro interno`.
-- `scripts/Preparar-Primeiro-Admin.ps1`: pede confirmacao do banco antes de aplicar migrations e criar/atualizar a conta de administrador. Nao gera senhas padrao.
-- Testes Node cobrindo D1 sem migracoes e D1 com migracoes.
-
-**Para implantar a nova tela de diagnostico**, copie os arquivos deste patch para os mesmos caminhos do repositorio (sobrescrevendo os arquivos indicados), execute `npm test` e faca commit/push. Sem esse novo `src/index.mjs`, `/api/health` antigo nao exibe o estado do banco. Aplicar migrations e cadastrar admin funciona mesmo sem publicar o hotfix.
-
-**Seguranca:** nao poste tokens, senhas nem documentos. O admin pode ser criado diretamente no seu computador. O sistema continua em STAGING com candidaturas publicas bloqueadas.
+Nao foi possivel realizar teste remoto na sua conta Cloudflare daqui. Os scripts foram validados de forma estrutural e o particionamento do SQL inicial foi testado localmente.
