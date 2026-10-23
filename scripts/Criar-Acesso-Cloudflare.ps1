@@ -14,11 +14,9 @@ try {
  if(-not (Get-Command node -ErrorAction SilentlyContinue)){throw 'Node.js nao encontrado.'}
  if(-not (Get-Command npx -ErrorAction SilentlyContinue)){throw 'npx nao encontrado.'}
  $Config=Get-Content '.\wrangler.jsonc' -Raw -Encoding UTF8 | ConvertFrom-Json
- $Dbs=@($Config.d1_databases|Where-Object {$_.binding -eq 'DB'})
- if($Dbs.Count -ne 1 -or $Dbs[0].database_name -ne 'ramon-recruit-eu' -or $Dbs[0].database_id -notmatch '^[a-fA-F0-9]{8}(-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$'){
-  throw 'O D1 vinculado nao e um ramon-recruit-eu valido. Cancelado.'
- }
- Write-Host "Banco D1: $($Dbs[0].database_name) / $($Dbs[0].database_id)" -ForegroundColor Yellow
+ . '.\scripts\Validar-D1-Ramon.ps1'
+ $Db=Assert-RamonD1 -Config $Config
+ Write-Host "Banco D1: $($Db.database_name) / $($Db.database_id)" -ForegroundColor Yellow
  Write-Host "Conta a criar ou ATUALIZAR: $Email | $Perfil" -ForegroundColor Yellow
  $Confirmacao=Read-Host 'Digite RAMON para confirmar que a conta sera criada/atualizada nesse banco'
  if($Confirmacao -cne 'RAMON'){throw 'Cancelado pelo usuario.'}

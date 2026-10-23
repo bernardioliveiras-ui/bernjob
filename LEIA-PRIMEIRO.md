@@ -1,43 +1,52 @@
-# Ramon Recruit v0.4.4 - correcao do D1 remoto (sem importacao)
+# Ramon Recruit v0.4.5 - corrigir o banco `ramon` sem renomear o D1
 
-## Diagnostico
+## Por que os scripts anteriores falhavam
 
-A consulta `d1 execute --command` funcionou e mostrou apenas `_cf_KV`: o esquema do aplicativo nao foi criado.
-A tentativa anterior de criar conta usava `d1 execute --file`, o qual chama a API `/import` e retornou erro de autenticacao `[code: 10000]` apesar de o token anunciar escopo `d1(write)`. A causa precisa do erro de `/import` nao esta confirmada.
+O `wrangler.jsonc` mostrado indica `database_name: "ramon"` e ID `5815cc53-5a3d-4666-a231-0c5b318eb03b`. Os scripts anteriores exigiam `ramon-recruit-eu` sem consultar o nome existente de fato na Cloudflare, o que impedia a inicializacao.
 
-## O que copiar para seu repositorio
+## Correção
 
-Copie **apenas a pasta `scripts/` deste patch** sobre `scripts/` no repositorio ja configurado. Nao substitua seu `wrangler.jsonc` e NAO coloque o patch como uma pasta extra na raiz.
+A validacao do D1 agora:
 
-Conteudo: `Inicializar-D1-Sem-Importacao.ps1`, `ler-migracao-para-comandos.mjs`, `Criar-Acesso-Cloudflare.ps1` atualizado e `gerar-sql-acesso.mjs` auxiliar ja usado no projeto.
+1. exige o UUID mostrado no print (`5815cc53-5a3d-4666-a231-0c5b318eb03b`) para evitar writes em outro banco;
+2. consulta a lista oficial com `npx wrangler d1 list --json`;
+3. compara o nome cadastrado na Cloudflare com `database_name` do `wrangler.jsonc`;
+4. exige confirmacao `RAMON` para operacoes de escrita.
 
-A migracao SQL original `migrations/0001_initial.sql` precisa existir no projeto. O novo script so aceita o esquema da familia v0.4, usando `CREATE TABLE IF NOT EXISTS` e `CREATE INDEX IF NOT EXISTS`, sem DROP/DELETE.
+Nao altera seu `wrangler.jsonc`. Nao cria outro D1 nem altera Workers.
 
-## Comandos no Windows PowerShell, na raiz do repositorio
+## Instalação
+
+Copie os arquivos da pasta `scripts/` para `C:\Users\hokiz\Documents\GitHub\bernjob\scripts\` substituindo os de mesmo nome. **Nao substitua** o `wrangler.jsonc`, `package.json` ou suas tabelas.
+
+No PowerShell **na raiz do repositorio**, abra uma janela nova e rode:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-npm install
 npx wrangler whoami
+npx wrangler d1 list
 .\scripts\Inicializar-D1-Sem-Importacao.ps1
+```
+
+Na mensagem de confirmacao, digite `RAMON` **somente se o UUID e o nome pertencerem ao banco exclusivo do recrutamento**.
+
+Confirme as tabelas:
+
+```powershell
 npx wrangler d1 execute DB --remote --command "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
+```
+
+Somente apos encontrar `users`, `jobs`, `candidates`, `sessions`, `request_limits`, cadastre o administrador:
+
+```powershell
 .\scripts\Criar-Acesso-Cloudflare.ps1 -Email "SEU_EMAIL" -Nome "Administrador Principal" -Perfil admin
 ```
 
-Os scripts imprimem o destino D1 e exigem confirmacao `RAMON`. Se o Worker/repo `bernjob` estiver apontando para um banco de outro projeto, nao confirme. O script de criacao exige uma nova senha forte e atualiza a conta se ja existir.
+## Segurança e limitações
 
-Se `--command` tambem falhar ao criar tabelas, interrompa e use o Cloudflare D1 Studio (console SQL) para executar a migracao original manualmente; nao saia repetindo comandos nem apague o banco. O problema de permissao pode ser no endpoint de gravacao.
-
-### Seguranca
-
-- A senha nunca vai para o SQL do D1; so PBKDF2-SHA256 com salt aleatorio.
-- A chamada `--command` passa o **hash** pela linha de comando do processo local; execute numa maquina confiavel, sem gravacao de terminal ou sistema de telemetria de processos que capture argumentos. O hash nao e senha em texto puro, mas tambem deve ser protegido.
-- Nao copie o hash, a senha ou o token para GitHub, screenshots ou chats.
-- O script original usa `--file`, que falhou no endpoint `/import`; este patch nao usa `--file`.
-- Este patch nao publica o Worker nem ativa candidaturas publicas.
-
-### Observacao sobre migracoes posteriores
-
-Essa inicializacao emergencial cria o esquema diretamente sem registrar uma migracao no historico de `d1_migrations`. Assim, nao use `d1 migrations apply --remote` novamente sem verificar o estado; caso o endpoint de importacao seja corrigido, a migracao original e idempotente, mas sera aplicada como pendente e atualizara o historico. Antes de futuras alteracoes no esquema, organize as migracoes corretamente.
-
-Nao foi possivel realizar teste remoto na sua conta Cloudflare daqui. Os scripts foram validados de forma estrutural e o particionamento do SQL inicial foi testado localmente.
+- Este pacote **nao foi executado na sua conta Cloudflare** e nao publica o Worker.
+- Se o banco `ramon` da lista estiver vinculado ao Bern Global, **pare** e separe os projetos antes de prosseguir.
+- Scripts usam o modo `d1 execute --command`, nao `--file`, para contornar a falha de `/import` encontrada antes.
+- Cria somente tabelas e indices com `IF NOT EXISTS`, mas executar em DB de projeto incorreto ainda seria perigoso; por isso as conferencias.
+- A migracao executada manualmente nao grava a versao em `d1_migrations`; evite aplicar outra migracao antes de revisar o estado do esquema.
+- `name: "ramon"` no wrangler nao resolve o aviso de projeto GitHub conectado a `bernjob`. Confira que os dois identificam o projeto do Ramon antes de usar esse Worker.

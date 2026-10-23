@@ -11,11 +11,8 @@ try {
   if (-not (Get-Command npx -ErrorAction SilentlyContinue)) { throw 'npx nao encontrado.' }
   if (-not (Test-Path '.\migrations\0001_initial.sql')) { throw 'Nao achei migrations/0001_initial.sql na raiz do projeto.' }
   $Config=Get-Content '.\wrangler.jsonc' -Raw -Encoding UTF8 | ConvertFrom-Json
-  $Bindings=@($Config.d1_databases | Where-Object { $_.binding -eq 'DB' })
-  if($Bindings.Count -ne 1){ throw 'Binding DB inexistente ou duplicado.' }
-  $Db=$Bindings[0]
-  if ($Db.database_name -ne 'ramon-recruit-eu') {throw 'Nome do banco diferente de ramon-recruit-eu. Cancelado.'}
-  if ($Db.database_id -notmatch '^[a-fA-F0-9]{8}(-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$') {throw 'database_id invalido no wrangler.jsonc.'}
+  . '.\scripts\Validar-D1-Ramon.ps1'
+  $Db=Assert-RamonD1 -Config $Config
   Write-Host "BANCO REMOTO: $($Db.database_name) / $($Db.database_id)" -ForegroundColor Yellow
   Write-Host "Worker configurado: $($Config.name)" -ForegroundColor Yellow
   Write-Host 'AVISO: este comando cria as tabelas de recrutamento neste D1, sem apagar tabelas existentes.' -ForegroundColor Yellow
