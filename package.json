@@ -1,17 +1,14 @@
 {
-  "name": "bern-global-mvp",
-  "version": "0.2.0",
+  "name": "ramon-recruit-cloudflare",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --local",
-    "db:local": "wrangler d1 migrations apply bern-global-db --local",
-    "db:remote": "wrangler d1 migrations apply bern-global-db --remote",
+    "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node --test tests/*.test.js",
-    "check": "node --check src/index.js && node --check src/jobbot.js && node --check public/app.js"
+    "db:local": "wrangler d1 migrations apply DB --local",
+    "db:remote": "wrangler d1 migrations apply DB --remote",
+    "test": "node --test tests/*.test.mjs"
   },
-  "devDependencies": {
-    "wrangler": "^4.46.0"
-  }
+  "devDependencies": {"wrangler": "^4.0.0"}
 }
