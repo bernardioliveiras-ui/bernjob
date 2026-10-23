@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "ramon-recruit-staging",
+  "name": "ramon",
   "main": "src/index.mjs",
   "compatibility_date": "2026-10-16",
   "workers_dev": true,
@@ -13,8 +13,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "ramon-recruit-eu",
-      "database_id": "REPLACE_WITH_EU_D1_UUID",
+      "database_name": "ramon",
+      "database_id": "5815cc53-5a3d-4666-a231-0c5b318eb03b",
       "migrations_dir": "migrations"
     }
   ],
