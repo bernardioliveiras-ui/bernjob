@@ -1,21 +1,25 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "bern-global-mvp",
-  "main": "src/index.js",
-  "compatibility_date": "2026-10-20",
-  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
-  "triggers": { "crons": ["0 * * * *"] },
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ramon-recruit-staging",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-10-16",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"],
+    "not_found_handling": "404-page"
+  },
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "bern-global-db",
-      "database_id": "092822c0-806e-4492-acfe-9a252f477c42",
+      "database_name": "ramon-recruit-eu",
+      "database_id": "REPLACE_WITH_EU_D1_UUID",
       "migrations_dir": "migrations"
     }
   ],
   "vars": {
-    "ENABLE_LEGAL_REQUESTS": "false",
-    "COMPANY_MVP": "true",
-    "JOBBOT_BATCH_SIZE": "8"
+    "APP_ENV": "staging",
+    "PUBLIC_APPLICATIONS_ENABLED": "false"
   }
 }

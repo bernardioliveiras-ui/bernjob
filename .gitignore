@@ -1,5 +1,10 @@
 node_modules/
-.dev.vars
 .wrangler/
-.env*
+.dev.vars
+.env
+.env.*
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.tmp
 *.log

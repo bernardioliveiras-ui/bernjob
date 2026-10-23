@@ -1,150 +1,115 @@
+# RAMON.RECRUIT — Cloudflare Workers + D1 (EU) — v0.4 STAGING
 
-## Atualização v0.2 — empresa, visual e proteção de dados
+Base técnica para publicar o **protótipo do Ramon** em um Cloudflare Worker, com SQLite migrado para **Cloudflare D1**, cadastro administrativo de vagas e chatbot **nativo por regras** no próprio site. Interface vem da v0.3. O projeto LORD NUTRI é uma referência de arquitetura, **não houve cópia de seu código-fonte**.
 
-Este pacote estende a base v0.1. Inclui um terceiro plano para empresa (R$129,90 por 30 dias), tela de publicação de vaga sujeita a moderação, acesso apenas às próprias candidaturas voluntárias, mensagens por candidatura, identidade visual do leão preto/vermelho/cinza e minutas de Política de Privacidade e Termos de Uso.
+**Status: testado localmente com simulador D1/Node; NÃO publicado em conta Cloudflare; NÃO aprovado para receber dados reais de candidatos.** É necessário autenticar na conta Cloudflare e executar os scripts. Não forneça API tokens, senhas ou documentos pessoais no ChatGPT.
 
-**Slogan proposto:** “Sua formação abre fronteiras. Encontre oportunidades reais na Europa.” O foco é em profissionais qualificados, sem presumir que diploma superior, sozinho, concede visto.
+## Publicar no PowerShell (Windows)
 
-**Atenção:** a publicação de vaga exige aprovação administrativa do empregador E da vaga. O JobBot continua como na v0.1; não foram importadas empresas reais nem comprovadas contratações. Candidatos cadastrados podem se inscrever nas vagas próprias das empresas sem pagar pelo direito de se candidatar. O plano candidato paga por ferramentas adicionais.
-
-**Leia:** `docs/POLITICA_PRIVACIDADE_MINUTA.md`, `docs/TERMOS_USO_MINUTA.md` e `docs/SEGURANCA_LGPD.md`. Minutas exigem identificação da empresa, canais de privacidade e revisão jurídica. Recursos obrigatórios de segurança, webhook, recuperação de senha por e-mail, verificação de e-mail, Turnstile e procedimento de exclusão de dados ainda precisam ser implementados e testados antes de produção.
-
-**Instalação:** crie **banco D1 novo** nesta versão. A migration original foi alterada para o papel empresa. Para migrar um banco v0.1 já existente, faça antes um plano de migração com preservação de dados, não apenas execute os comandos da instalação nova.
-
-### Moderação de empresas e vagas (PowerShell)
-
-Crie conta de empresa pelo site ou `New-BernUser.ps1 -Role company`. Após ativar o plano e salvar perfil, verifique o CNPJ/registro comercial e a titularidade do representante; então execute, com `BERN_ADMIN_KEY` configurada:
+Requisitos: **Node.js 22+**, **npm**, **PowerShell 5.1+**, acesso administrativo à conta Cloudflare. Vá à pasta descompactada:
 
 ```powershell
-$headers = @{ 'X-Admin-Key' = $env:BERN_ADMIN_KEY }
-Invoke-RestMethod -Method POST -Uri "$BaseUrl/api/admin/company/verify" -Headers $headers -ContentType 'application/json' -Body (@{user_id='ID_REAL_DA_EMPRESA';verified=$true}|ConvertTo-Json)
-Invoke-RestMethod -Method POST -Uri "$BaseUrl/api/admin/company/jobs/moderate" -Headers $headers -ContentType 'application/json' -Body (@{job_id='ID_REAL_DA_VAGA';status='published'}|ConvertTo-Json)
-```
-
-Não publique as vagas sem revisão de autenticidade. Estas rotas não substituem um painel completo de moderação/auditoria; um módulo administrativo visual ainda está pendente.
-
-### Reset administrativo de senha
-
-Use `scripts/Reset-BernPassword.ps1`. Entregue a senha provisória ao usuário via canal seguro. Ela é mostrada apenas no terminal e obriga alteração no próximo acesso.
-
----
-# Bern Global MVP 0.1 — Cloudflare Workers + D1
-
-Base executável de um marketplace de informações profissionais na Europa. Inclui páginas públicas e painel de candidatos, painel jurídico e coleta agendada de vagas de páginas públicas de carreira via APIs de Greenhouse, Lever e Ashby.
-
-**Status:** código-base e testes locais de lógica concluídos. **Não foi publicado, não contém fontes cadastradas e não está conectado a uma conta InfinitePay ou Cloudflare.** Precisa de credenciais próprias e testes reais de ponta a ponta antes de ser colocado à venda. Diretório e solicitações de advogados são funcionalidades de desenvolvimento sujeitas à validação ética/jurídica.
-
-## O que já está implementado
-
-- Site responsivo em português; cadastro/login por e-mail + senha; sessões HttpOnly; hash de senha PBKDF2-SHA256, troca de senha e bloqueio de senha provisória.
-- Papéis separados: `candidate`, `lawyer`, `admin`. O candidato não vê o cadastro dos demais. Advogados não conseguem consultar candidatos.
-- Checkout InfinitePay criado pelo **servidor** com preço fixado: R$9,90 candidato / R$29,90 advogado, cada acesso por 30 dias (pagamento único por período, **sem renovação automática** nessa versão).
-- Liberação de acesso **somente** após `payment_check` no servidor confirmar `paid` e valor exato para um pedido do próprio usuário; ativação idempotente.
-- Catálogo público com amostra e catálogo completo para assinante ativo, filtro por país e link ao anúncio original, nunca candidatura automática.
-- JobBot executado via cron por hora, mais execução administrativa manual. Coleta até oito fontes por rodada por padrão, dando preferência às menos recentemente consultadas.
-- Integrações Greenhouse, Lever (até 500 anúncios por fonte por rodada) e Ashby, filtragem Portugal/Alemanha/Irlanda, recusa de URL de candidatura sem HTTPS, deduplicação por identificador e URL, histórico de coleta e arquivamento após fonte confirmar que vaga saiu do quadro.
-- Três etiquetas migratórias: `confirmed` significa **somente que o anúncio tem indício textual de suporte internacional**, `not_confirmed` sinaliza restrição explícita, e `unknown` indica ausência de confirmação. **Nenhuma etiqueta garante autorização de trabalho.**
-- Central documental com links de governo; perfis jurídicos com aprovação administrativa; solicitações de contato escolhidas pelo candidato e compartilhadas apenas com o profissional escolhido, com consentimento explícito. Essa função permanece **DESLIGADA por padrão** até revisão jurídica.
-- Provisionamento administrativo e senha temporária gerados pelo PowerShell, além de comandos PowerShell para cadastrar uma fonte, rodar o bot e consultar estatísticas.
-
-## 1. Requisitos
-
-Node.js 20+, PowerShell 7+ para os scripts administrativos, conta Cloudflare com Workers/D1 e acesso ao Checkout Integrado InfinitePay.
-
-No PowerShell, dentro da pasta:
-
-```powershell
+cd .\Ramon-Recruit-Cloudflare-v0.4
 npm install
 npx wrangler login
-npx wrangler d1 create bern-global-db
+.\scripts\Configurar-Cloudflare.ps1
 ```
 
-Copie o `database_id` informado para `wrangler.jsonc`, no lugar de `REPLACE_WITH_CLOUDFLARE_D1_ID`.
+O script:
 
-Em seguida:
+1. verifica autenticação e dependências;
+2. executa `wrangler d1 create ramon-recruit-eu --jurisdiction eu` **se o banco não existir**;
+3. obtém o UUID retornado por `wrangler d1 list --json` e insere em `wrangler.jsonc` como `database_id`;
+4. aplica a migração SQL via `wrangler d1 migrations apply DB --remote`;
+5. publica o Worker com `wrangler deploy`. O endereço `.workers.dev` será informado no terminal pelo Wrangler.
+
+**Banco existente:** o script não reutiliza o nome de banco sem confirmação explícita. Se você **verificou** que já criou o banco D1 com a jurisdição `eu`, use `-UsarBancoExistente`; caso contrário, não reutilize. Jurisdição só pode ser configurada **na criação do banco**.
+
+O config mantém candidaturas públicas bloqueadas por padrão. Você poderá acessar o login e as vagas publicadas, mas o recebimento de dados pessoais ficará bloqueado até a liberação consciente.
+
+## Criar acessos pelo PowerShell
+
+**Depois** de publicar e aplicar a migração remota:
 
 ```powershell
-npx wrangler d1 migrations apply bern-global-db --local
-npm run dev
+.\scripts\Criar-Acesso-Cloudflare.ps1 -Email "EMAIL_REAL_DO_RAMON" -Nome "Ramon da Gama Soares" -Perfil admin
+.\scripts\Criar-Acesso-Cloudflare.ps1 -Email "EMAIL_REAL_DO_RECRUTADOR" -Nome "Equipe Recrutamento" -Perfil recruiter
 ```
 
-Acesse `http://localhost:8787`. O site aparecerá, mas sem vagas ou pagamentos até configurar as fontes e as credenciais.
+Substitua e-mails de exemplo pelos endereços reais. As senhas são pedidas sem eco no terminal, passadas por STDIN ao Node, derivadas com **PBKDF2-SHA256 (310.000 iterações, salt aleatório)** e gravadas como hash no D1 com comando Wrangler. O script gera um arquivo SQL **temporário somente com o hash**, que é apagado ao terminar. Proteja o dispositivo e o acesso à conta Cloudflare. Provisionar um e-mail existente redefine sua senha e perfil.
 
-## 2. Segredos
+**As contas do Node/SQLite v0.3 NÃO são migradas automaticamente para o D1.** Os scripts novos cadastram novamente com senhas novas. Não há senhas padrão.
 
-**Nunca publique a chave da InfinitePay nem a chave administrativa em `wrangler.jsonc`, GitHub público ou navegador.**
+## Variáveis e bindings Cloudflare
 
-Gere uma chave administrativa longa e aleatória com PowerShell:
+Em `wrangler.jsonc`:
+
+| Variável / binding | Tipo | Valor inicial | Uso |
+| --- | --- | --- | --- |
+| `DB` | D1 binding | banco `ramon-recruit-eu` | Vagas, usuários, sessões, chatbot, candidatos |
+| `ASSETS` | Static assets binding | `./public` | Painel web, PWA, JS/CSS |
+| `APP_ENV` | plain var | `staging` | Identifica ambiente de homologação |
+| `PUBLIC_APPLICATIONS_ENABLED` | plain var | `false` | Bloqueia `apply` e início/avanço do chatbot público |
+
+**Não** coloque tokens, senhas ou chaves de IA em `vars` do arquivo. Para futuras integrações reais, crie secrets somente quando o código os consumir:
 
 ```powershell
-$bytes = [byte[]]::new(32)
-[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-$env:BERN_ADMIN_KEY = [Convert]::ToBase64String($bytes)
-npx wrangler secret put ADMIN_KEY
-npx wrangler secret put INFINITEPAY_API_KEY
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put WHATSAPP_ACCESS_TOKEN
+npx wrangler secret put WHATSAPP_VERIFY_TOKEN
 ```
 
-O primeiro comando `secret put` perguntará o valor: cole o mesmo de `$env:BERN_ADMIN_KEY`. Para `INFINITEPAY_API_KEY`, cole a chave gerada na InfinitePay. Configure opcionalmente `INFINITEPAY_HANDLE` com a sua InfiniteTag **sem `$`** (pode adicionar em `wrangler.jsonc` em `vars`; não é segredo comparável a API key).
+Esses nomes são **reservados para desenvolvimento futuro**, não necessários para executar a v0.4. Adicioná-los agora não habilitará OpenAI ou WhatsApp. Para visualizar variáveis de produção no painel Cloudflare: Workers & Pages → Worker `ramon-recruit-staging` → Settings → Variables and Secrets; o D1 aparece em Bindings.
 
-Para teste local, crie `.dev.vars` (não versionar):
-
-```ini
-ADMIN_KEY=COLE_UMA_CHAVE_ALEATORIA_LONGA
-INFINITEPAY_API_KEY=COLE_SUA_CHAVE_INFINITEPAY
-INFINITEPAY_HANDLE=SEU_HANDLE
-```
-
-Na publicação, `wrangler secret put` grava segredos de produção. Defina a variável `$env:BERN_ADMIN_KEY` no seu terminal com o mesmo valor de `ADMIN_KEY` para os scripts.
-
-## 3. Cadastrar empresas reais e testar o JobBot
-
-Primeiro confirme no site da empresa qual seu provedor de recrutamento (Greenhouse, Lever ou Ashby), seu identificador de quadro `board_slug` e os termos de acesso. Não invente identificadores.
+**Habilitar candidaturas somente depois de testes legais e técnicos:**
 
 ```powershell
-.\scripts\Add-BernSource.ps1 -BaseUrl 'http://localhost:8787' -Employer 'NOME REAL DA EMPRESA' -Provider 'greenhouse' -BoardSlug 'SLUG_REAL' -TermsReviewed
-.\scripts\Run-BernJobBot.ps1 -BaseUrl 'http://localhost:8787'
-.\scripts\Get-BernStats.ps1 -BaseUrl 'http://localhost:8787'
-```
-
-Também é possível importar muitos quadros após validação individual usando `scripts/Import-BernSources.ps1`: preencha `scripts/fontes-modelo.csv` com empresas e slugs **reais**, marque `TermsReviewed=true` apenas depois de conferir as condições e execute `./scripts/Import-BernSources.ps1 -BaseUrl 'http://localhost:8787' -CsvPath './scripts/fontes-modelo.csv'`. O CSV incluído contém **apenas marcadores de exemplo**, nenhuma empresa real cadastrada. Ajuste `JOBBOT_BATCH_SIZE` às cotas do seu plano Cloudflare.
-
-Na versão atual os portais oficiais IEFP, Make it in Germany e JobsIreland estão na **central de links**; **ainda não foram implementados como conectores automáticos**, porque suas condições e formatos de acesso devem ser validados antes. Para volume, incremente o catálogo de fontes corporativas verificadas; o cron hora a hora processará lotes de 8 fontes. Fontes com acesso limitado não são coletadas até autorização.
-
-## 4. Gerar acesso com PowerShell
-
-```powershell
-.\scripts\New-BernUser.ps1 -BaseUrl 'http://localhost:8787' -Name 'Pessoa Teste' -Email 'teste@exemplo.com' -Role candidate
-```
-
-A senha provisória aparece **uma vez** no terminal: transfira por canal seguro. No primeiro login o usuário troca a senha. Uma conta provisionada não ganha assinatura paga automaticamente; deve ter pagamento confirmado (ou uma funcionalidade administrativa de cortesia, ainda não implementada).
-
-## 5. Publicar no Cloudflare
-
-```powershell
-npx wrangler d1 migrations apply bern-global-db --remote
-npm test
+.\scripts\Configurar-Abertura.ps1 -Habilitar true
 npx wrangler deploy
 ```
 
-O Worker fornece o site e as rotas `/api/*`. A rotina agendada roda em UTC. CronTriggers podem levar alguns minutos para passar a executar após uma publicação; acompanhe os logs, `Get-BernStats` e as métricas Cloudflare.
+Para bloquear novamente, use `-Habilitar false` e republique.
 
-## 6. InfinitePay
-
-A aplicação cria uma compra com o endpoint `POST https://api.checkout.infinitepay.io/links` e checa pagamento no endpoint `POST https://api.checkout.infinitepay.io/payment_check` usando o cabeçalho `X-Api-Key`. Sempre confira na documentação atual da sua conta: <https://ajuda.infinitepay.io/pt-BR/articles/10766888-como-usar-o-checkout-integrado-da-infinitepay>.
-
-Fluxo: cadastro -> login -> comprar plano -> checkout -> retorno com `order_nsu`, `transaction_nsu` e `slug` -> servidor confirma valor e pagamento -> acesso por 30 dias. Se o usuário fecha a página sem voltar, **a ativação não ocorrerá automaticamente nesta versão**; é necessário implementar um webhook verificado/reconciliação server-side antes de operar comercialmente. Não marque o usuário como pago somente a partir do webhook não autenticado.
-
-## 7. Jurídico e proteção de dados
-
-`ENABLE_LEGAL_REQUESTS` está `false` por padrão. Não ative publicamente até revisão por assessoria que domine regras da OAB, do país de registro do advogado, LGPD e GDPR. A OAB proíbe determinadas formas de captação e de comercialização de serviços jurídicos; a escolha voluntária de um advogado não é autorização geral para vender ou distribuir dados de candidatos. Nenhuma comissão por indicação ou ranking pago é implementada.
-
-Antes do lançamento: termos de uso, política LGPD, verificação dos registros profissionais, canal de exclusão de dados, recuperação de senha por e-mail de modo seguro, verificação de titularidade do e-mail, rate limiting/Turnstile/WAF, moderação e antifraude, retenção e exclusão de solicitações, autenticação adicional de administradores, tratamento de estornos e suporte.
-
-## 8. Testes
+## Desenvolvimento local
 
 ```powershell
-npm run check
+npm install
+npm run db:local
+npm run dev
+```
+
+O Wrangler informa o endereço local, geralmente `http://127.0.0.1:8787`. Para testar login local, crie uma conta **no D1 local**, não remoto (o script de criação fornecido usa `--remote`). Testes automatizados sem conta Cloudflare:
+
+```powershell
 npm test
 ```
 
-Os testes cobrem normalização de localidade, decisão conservadora sobre contratação internacional, Greenhouse, Lever, Ashby, slug permitido e paginação de Lever. **Não substituem um teste integrado com Cloudflare D1 e InfinitePay reais.**
+`GET /api/health` fornece status sem consultar dados privados. `GET /api/public/jobs` lista apenas vagas publicadas. No frontend, o admin pode publicar vagas e configurar perguntas técnicas; o recrutador recebe 403 ao tentar fazer alterações reservadas.
+
+## O que a v0.4 faz
+
+- Servir PWA e painel administrativo no Cloudflare Worker, por assets do mesmo deploy.
+- Guardar usuários e candidaturas no banco D1, com sessões de login baseadas em cookies Secure/HttpOnly.
+- Criar, editar, publicar e encerrar vagas exclusivamente como `admin`, **com verificação no servidor**.
+- Mostrar vagas publicadas para candidatos e coletar candidaturas (quando ativado).
+- Atender candidatos pelo chatbot próprio em **PT / EN / ES**, com teste técnico configurado pelo admin, UTM de anúncios e gravação no D1; resultado inicial encaminhado para revisão humana.
+- Pontuar compatibilidade por regras transparentes; não há IA generativa operando.
+- Guardar **somente metadados** de documentos e status de conferência; não há upload/OCR de passaportes ainda.
+
+## Antes de aceitar 500+ pessoas/dia
+
+**Este pacote é STAGING.** Recursos ainda obrigatórios para uso público com dados reais:
+
+1. Política de privacidade **real**: substituir o texto demonstrativo `public/privacy.html`, estabelecer controlador/encarregado, base legal, retenção, direitos dos candidatos e contratos de tratamento.
+2. Anti-bot e antispam: Cloudflare Turnstile integrado ao formulário e chatbot, WAF, rate limit por conta, limites de uso e alertas. O rate limit no D1 é apenas inicial; não substitui WAF.
+3. Segurança: MFA para administradores, recuperação segura de senha, segregação de papéis por organização, proteção contra ataques de sessão, acesso restrito ao painel, testes de penetração, monitoração e backups/restauração testados.
+4. Documentos: armazenamento R2 **privado** com política de residência adequada, antivírus/validação e criptografia, URLs temporárias, trilha de auditoria e processamento com permissão. A v0.4 não permite anexar passaportes reais.
+5. Recrutamento na UE: avaliar RGPD, decisões automatizadas, transferências internacionais e classificação do uso de IA de seleção no AI Act; revisão humana **efetiva**, com possibilidade de contestação. Considerar DPIA antes do processamento.
+6. Performance: testes realistas de carga e custo para **500+ candidatos/dia**, limites D1, política de filas/Workers, métricas de erro e preservação de dados. Sem garantia atual de throughput.
+7. Integrações: IA Vision, WhatsApp Cloud API oficial, notificações/push e eventual checkout, apenas quando previstos e validados.
+
+**Worker é global, mas D1 `--jurisdiction eu` mantém os dados do D1 nessa jurisdição.** Isso não assegura residência de todos os outros serviços, logs e operações, nem conformidade integral com RGPD.
+
+## Política comercial
+
+Nenhum valor comercial interno é exposto no painel. A referência interna do projeto é **R$ 5.000 pela mão de obra de desenvolvimento** e **R$ 800 mensais**, sendo **R$ 500 reservados para infraestrutura/APIs** e **R$ 300 de remuneração mensal do desenvolvedor**. Os R$ 500 são um **limite planejado** e não há garantia de que suportem 500+ candidatos/dia sem orçamento e medição.
